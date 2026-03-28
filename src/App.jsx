@@ -150,9 +150,9 @@ function FileSelector({ files, onSelect, selectedFile, diffStats }) {
             <span className="tooltip">
               <span className="stat-remove">Removed</span> / <span className="stat-add">Added</span> / <span className="stat-modify">Modified</span>
               {'\n\n'}
-              <span className="stat-remove">Removed</span> : number of elements from the left environment that are not in the right environment{'\n'}
-              <span className="stat-add">Added</span> : number of elements from the right environment that are not in the left environment{'\n'}
-              <span className="stat-modify">Modified</span> : number of elements present in both environments but with a different value
+              <span className="stat-remove">Removed</span> : number of lines from the left environment that are not in the right environment{'\n'}
+              <span className="stat-add">Added</span> : number of lines from the right environment that are not in the left environment{'\n'}
+              <span className="stat-modify">Modified</span> : number of lines present in both environments but with a different value
             </span>
           </span>
         </div>
@@ -520,7 +520,7 @@ function App() {
                 Click on any file from the list on the left to see a side-by-side diff between the <strong>{leftEnvironment}</strong> and <strong>{rightEnvironment}</strong> environments.
               </p>
               <p className="empty-state-body">
-                The numbers next to each file show how many elements were <span className="stat-remove">removed</span>, <span className="stat-add">added</span>, or <span className="stat-modify">modified</span> between the two environments.
+                The numbers next to each file show how many lines were <span className="stat-remove">removed</span>, <span className="stat-add">added</span>, or <span className="stat-modify">modified</span> between the two environments.
               </p>
             </div>
           )}
