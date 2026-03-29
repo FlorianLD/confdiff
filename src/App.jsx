@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import JSZip from 'jszip';
 import './App.css';
 import { Differ, Viewer } from 'json-diff-kit';
@@ -97,6 +97,33 @@ const toSentenceCase = (str) => str ? str.charAt(0).toUpperCase() + str.slice(1)
 
 const differ = new Differ({ detectCircular: true, maxDepth: Infinity, showModifications: true, arrayDiffMethod: 'lcs' });
 
+async function splitConfigurations(filesArr) {
+  const result = [];
+  for (const file of filesArr) {
+    if (file.name !== 'configuration.json') {
+      result.push(file);
+      continue;
+    }
+    const data = JSON.parse(await file.text());
+    const inner = data.configuration ?? data;
+    const workflows = {};
+    const rest = {};
+    for (const [key, value] of Object.entries(inner)) {
+      if (key.startsWith('workflows.') || key.startsWith('preparation.workflows')) {
+        workflows[key] = value;
+      } else {
+        rest[key] = value;
+      }
+    }
+    const restData = data.configuration ? { configuration: rest } : rest;
+    result.push(new File([JSON.stringify(restData)], 'configuration.json', { type: 'application/json' }));
+    if (Object.keys(workflows).length > 0) {
+      result.push(new File([JSON.stringify(workflows)], 'workflows.json', { type: 'application/json' }));
+    }
+  }
+  return result;
+}
+
 async function computeAllDiffs(internalFilesArr, stagingFilesArr, fileNames) {
   const stats = {};
   const diffs = {};
@@ -180,19 +207,19 @@ function FileSelector({ files, onSelect, selectedFile, diffStats }) {
             </Fragment>
           );
         })}
+        {Object.keys(diffStats).length > 0 && (
+          <div className="diff-totals">
+            <span className="diff-totals-label">Total</span>
+            <span className="diff-stats">
+              <span className={totals.removes === 0 ? 'stat-zero' : 'stat-remove'}>{totals.removes}</span>
+              {' / '}
+              <span className={totals.adds === 0 ? 'stat-zero' : 'stat-add'}>{totals.adds}</span>
+              {' / '}
+              <span className={totals.modifies === 0 ? 'stat-zero' : 'stat-modify'}>{totals.modifies}</span>
+            </span>
+          </div>
+        )}
       </div>
-      {Object.keys(diffStats).length > 0 && (
-        <div className="diff-totals">
-          <span className="diff-totals-label">Total</span>
-          <span className="diff-stats">
-            <span className="stat-remove">{totals.removes}</span>
-            {' / '}
-            <span className="stat-add">{totals.adds}</span>
-            {' / '}
-            <span className="stat-modify">{totals.modifies}</span>
-          </span>
-        </div>
-      )}
     </div>
   );
 }
@@ -286,7 +313,7 @@ function FolderDropZone({ onFoldersDrop, onSwap, leftEnvironment, rightEnvironme
 
 function App() {
   const [view, setView] = useState('home');
-  const [hideUnchangedLines, setHideUnchangedLines] = useState(false);
+  const [hideUnchangedLines, setHideUnchangedLines] = useState(true);
   const [internalFiles, setInternalFiles] = useState([]);
   const [leftEnvironment, setLeftEnvironment] = useState(null);
   const [leftSiteId, setLeftSiteId] = useState(null);
@@ -302,7 +329,19 @@ function App() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [scrollMarks, setScrollMarks] = useState([]);
   const [sameEnvWarning, setSameEnvWarning] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [viewportTop, setViewportTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
   const contentRef = useRef(null);
+
+  const hideUnchangedConfig = useMemo(() => hideUnchangedLines ? {
+    expandLineRenderer: ({ hasLinesBefore, hasLinesAfter, onExpandBefore, onExpandAfter }) => (
+      <div>
+        {hasLinesBefore && <button onClick={() => onExpandBefore(20)}>↑ Show 20 lines before</button>}
+        {hasLinesAfter && <button onClick={() => onExpandAfter(20)}>↓ Show 20 lines after</button>}
+      </div>
+    ),
+  } : false, [hideUnchangedLines]);
 
   const handleSwap = () => {
     setInternalFiles(stagingFiles);
@@ -379,49 +418,72 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const update = () => {
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      if (scrollHeight <= 0) return;
+      setViewportTop(scrollTop / scrollHeight);
+      setViewportHeight(clientHeight / scrollHeight);
+    };
+    update();
+    el.addEventListener('scroll', update);
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => { el.removeEventListener('scroll', update); ro.disconnect(); };
+  }, [diff, hideUnchangedLines]);
+
+  useEffect(() => {
     if (!diff) { setScrollMarks([]); return; }
-    let rafId;
-    const timer = setTimeout(() => {
-      rafId = requestAnimationFrame(() => {
-        const container = contentRef.current;
-        if (!container) return;
-        const scrollHeight = container.scrollHeight;
-        const cells = container.querySelectorAll('.line-remove, .line-add, .line-modify');
-        const seen = new Set();
-        const marks = [];
-        for (const cell of cells) {
-          const tr = cell.closest('tr');
-          if (!tr || seen.has(tr)) continue;
-          seen.add(tr);
-          const type = cell.classList.contains('line-remove') ? 'remove'
-                     : cell.classList.contains('line-add') ? 'add'
-                     : 'modify';
-          let top = 0;
-          let node = tr;
-          while (node && node !== container) {
-            top += node.offsetTop;
-            node = node.offsetParent;
-          }
-          marks.push({ type, position: top / scrollHeight });
+    const computeMarks = () => {
+      const container = contentRef.current;
+      if (!container) return;
+      const scrollHeight = container.scrollHeight;
+      const cells = container.querySelectorAll('.line-remove, .line-add, .line-modify');
+      const seen = new Set();
+      const marks = [];
+      for (const cell of cells) {
+        const tr = cell.closest('tr');
+        if (!tr || seen.has(tr)) continue;
+        seen.add(tr);
+        const type = cell.classList.contains('line-remove') ? 'remove'
+                   : cell.classList.contains('line-add') ? 'add'
+                   : 'modify';
+        let top = 0;
+        let node = tr;
+        while (node && node !== container) {
+          top += node.offsetTop;
+          node = node.offsetParent;
         }
-        setScrollMarks(marks);
-      });
-    }, 50);
-    return () => { clearTimeout(timer); cancelAnimationFrame(rafId); };
+        marks.push({ type, position: top / scrollHeight });
+      }
+      setScrollMarks(marks);
+    };
+    let rafId;
+    const timer = setTimeout(() => { rafId = requestAnimationFrame(computeMarks); }, 50);
+    const mo = new MutationObserver(() => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(computeMarks);
+    });
+    const container = contentRef.current;
+    if (container) mo.observe(container, { childList: true, subtree: true });
+    return () => { clearTimeout(timer); cancelAnimationFrame(rafId); mo.disconnect(); };
   }, [diff, hideUnchangedLines]);
 
   useEffect(() => {
     if (internalFiles.length > 0 && stagingFiles.length > 0) {
-      const internalFileNames = internalFiles.map((file) => file.name);
-      const stagingFileNames = stagingFiles.map((file) => file.name);
+      Promise.all([splitConfigurations(internalFiles), splitConfigurations(stagingFiles)]).then(([splitInternal, splitStaging]) => {
+      const internalFileNames = splitInternal.map((file) => file.name);
+      const stagingFileNames = splitStaging.map((file) => file.name);
       const common = internalFileNames.filter((file) => stagingFileNames.includes(file)).sort();
       setCommonFiles(common);
 
-      computeAllDiffs(internalFiles, stagingFiles, common).then(({ stats, diffs }) => {
+      computeAllDiffs(splitInternal, splitStaging, common).then(({ stats, diffs }) => {
         setDiffStats(stats);
         setAllDiffs(diffs);
         setDiff(null);
         setSelectedFile(null);
+      });
       });
     }
   }, [internalFiles, stagingFiles]);
@@ -442,14 +504,21 @@ function App() {
     setDiff(null);
     setSelectedFile(null);
     setScrollMarks([]);
-    setHideUnchangedLines(false);
+    setHideUnchangedLines(true);
     setSameEnvWarning(null);
   };
 
   const handleFileSelect = (fileName) => {
-    setDiff(allDiffs[fileName] ?? null);
     setSelectedFile(fileName);
+    setDiff(null);
+    setLoading(true);
     contentRef.current?.scrollTo({ top: 0 });
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setDiff(allDiffs[fileName] ?? null);
+        setLoading(false);
+      });
+    });
   };
 
   if (view === 'home') {
@@ -496,20 +565,25 @@ function App() {
             />
             <span className="toggle-slider" />
           </span>
-          Hide unchanged lines
+          Only show changes
         </label>
         <FileSelector files={commonFiles} onSelect={handleFileSelect} selectedFile={selectedFile} diffStats={diffStats} />
       </div>
       <div ref={contentRef} className={`diff-content${scrollMarks.length > 0 ? ' diff-content--with-map' : ''}`}>
         <div className="diff-pane">
-          {diff ? (
+          {loading ? (
+            <div className="empty-state">
+              <div className="loading-spinner" />
+              <p className="empty-state-body">Loading diff...</p>
+            </div>
+          ) : diff ? (
             <Viewer
               key={hideUnchangedLines}
               diff={diff}
               indent={4}
               lineNumbers={true}
               syntaxHighlight={{ theme: 'monokai' }}
-              hideUnchangedLines={hideUnchangedLines}
+              hideUnchangedLines={hideUnchangedConfig}
               highlightInlineDiff={true}
               inlineDiffOptions={{ mode: 'word', wordSeparator: ' ' }}
             />
@@ -528,12 +602,22 @@ function App() {
         {scrollMarks.length > 0 && (
           <div
             className="scroll-map"
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const ratio = (e.clientY - rect.top) / rect.height;
-              contentRef.current?.scrollTo({ top: ratio * contentRef.current.scrollHeight });
+            onMouseDown={(e) => {
+              e.preventDefault();
+              const map = e.currentTarget;
+              const scrollTo = (clientY) => {
+                const rect = map.getBoundingClientRect();
+                const ratio = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+                contentRef.current?.scrollTo({ top: ratio * contentRef.current.scrollHeight });
+              };
+              scrollTo(e.clientY);
+              const onMove = (ev) => scrollTo(ev.clientY);
+              const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+              document.addEventListener('mousemove', onMove);
+              document.addEventListener('mouseup', onUp);
             }}
           >
+            <div className="scroll-map-viewport" style={{ top: `${viewportTop * 100}%`, height: `${viewportHeight * 100}%` }} />
             {scrollMarks.map((mark, i) => (
               <div key={i} className={`scroll-mark scroll-mark--${mark.type}`} style={{ top: `${mark.position * 100}%` }} />
             ))}

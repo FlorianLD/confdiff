@@ -25,4 +25,5 @@ dist-ssr
 *.sw?
 
 features.txt
+dummy_data
 

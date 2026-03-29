@@ -49,6 +49,7 @@ button {
   border-collapse: collapse;
   border-spacing: 0;
   color: #d4d4d4;
+  table-layout: fixed;
 }
 
 .json-diff-viewer tr {
@@ -166,15 +167,6 @@ button {
   word-break: break-all;
 }
 
-.json-diff-viewer-virtual pre {
-  overflow-x: auto;
-  white-space: pre;
-}
-
-.json-diff-viewer-virtual pre::-webkit-scrollbar {
-  display: none;
-}
-
 .json-diff-viewer tr td.line-number:first-child {
   border-left: none;
 }
@@ -277,6 +269,19 @@ button {
   }
 }
 
+.loading-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2.5px solid #3e4049;
+  border-top-color: #9ca3af;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ── Folder drop zone ──────────────────────────────────── */
 
 .folder-drop-zone {
@@ -320,7 +325,6 @@ button {
     padding: 8px;
   }
 }
-
 
 .drop-icon {
   font-size: 28px;
@@ -394,7 +398,12 @@ button {
 }
 
 .diff-content--with-map {
-  grid-template-columns: 1fr 24px;
+  grid-template-columns: 1fr 48px;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 .diff-pane {
@@ -406,7 +415,7 @@ button {
 /* ── Diff sidebar ──────────────────────────────────────── */
 
 .sidebar {
-  width: max-content;
+  width: 400px;
   min-width: 140px;
   flex-shrink: 0;
   padding: 12px;
@@ -488,6 +497,7 @@ button {
 .stat-zero   { color: #6b7280; }
 
 .diff-totals {
+  grid-column: 1 / -1;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -577,6 +587,7 @@ button {
   min-height: 0;
   display: grid;
   grid-template-columns: max-content 1fr;
+  align-content: start;
   align-items: center;
   column-gap: 8px;
   row-gap: 1px;
@@ -612,9 +623,22 @@ button {
   top: 0;
   height: 100vh;
   align-self: start;
-  background: #232222;
+  background: #302f2f;
   cursor: pointer;
   border-left: 1px solid #3c3c3c;
+  overflow: hidden;
+}
+
+.scroll-map-viewport {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  pointer-events: none;
+  min-height: 8px;
+  box-shadow: 0 -5000px 0 5000px rgba(0, 0, 0, 0.25), 0 5000px 0 5000px rgba(0, 0, 0, 0.25);
 }
 
 .scroll-mark {
