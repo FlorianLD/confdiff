@@ -297,13 +297,13 @@ function FolderDropZone({ onFoldersDrop, onSwap, leftEnvironment, rightEnvironme
       {isFilled ? (
         <div className="drop-slots">
           <span className={large ? 'slot-value' : 'env-badge'}>{large ? (leftEnvironment ?? '—') : toSentenceCase(leftEnvironment)}</span>
-          <button className="swap-btn" onClick={(e) => { e.stopPropagation(); onSwap(); }} title="Swap folders">⇄</button>
+          <button className="swap-btn" onClick={(e) => { e.stopPropagation(); onSwap(); }} title="Swap environments">⇄</button>
           <span className={large ? 'slot-value' : 'env-badge'}>{large ? (rightEnvironment ?? '—') : toSentenceCase(rightEnvironment)}</span>
         </div>
       ) : (
         <>
           <span className="drop-icon">📁</span>
-          <p className="drop-hint">Drop two configuration zip folders here</p>
+          <p className="drop-hint">Drop two configuration zip files here</p>
         </>
       )}
     </div>
@@ -533,7 +533,7 @@ function App() {
           rightEnvironment={rightEnvironment}
         />
         {sameEnvWarning && (
-          <p className="home-warning">Both folders have the same environment: <strong>{sameEnvWarning}</strong></p>
+          <p className="home-warning">Both files have the same environment: <strong>{sameEnvWarning}</strong></p>
         )}
       </div>
     );
