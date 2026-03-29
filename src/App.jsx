@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import JSZip from 'jszip';
 import './App.css';
 import { Differ, Viewer } from 'json-diff-kit';
@@ -188,13 +188,12 @@ function FileSelector({ files, onSelect, selectedFile, diffStats }) {
         {files.map((file) => {
           const stats = diffStats[file];
           return (
-            <Fragment key={file}>
-              <button
-                className={`file-btn${file === selectedFile ? ' active' : ''}`}
-                onClick={() => onSelect(file)}
-              >
-                {file.replace(/\.json$/, '')}
-              </button>
+            <button
+              key={file}
+              className={`file-row${file === selectedFile ? ' active' : ''}`}
+              onClick={() => onSelect(file)}
+            >
+              <span className="file-name">{file.replace(/\.json$/, '')}</span>
               <span className="diff-stats">
                 {stats && <>
                   <span className={stats.removes === 0 ? 'stat-zero' : 'stat-remove'}>{stats.removes}</span>
@@ -204,7 +203,7 @@ function FileSelector({ files, onSelect, selectedFile, diffStats }) {
                   <span className={stats.modifies === 0 ? 'stat-zero' : 'stat-modify'}>{stats.modifies}</span>
                 </>}
               </span>
-            </Fragment>
+            </button>
           );
         })}
         {Object.keys(diffStats).length > 0 && (
