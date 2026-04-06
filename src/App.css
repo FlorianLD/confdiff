@@ -1079,7 +1079,7 @@ button {
   flex-direction: column;
   justify-content: flex-end;
   gap: 6px;
-  padding: 51px 14px 12px;
+  padding: 51px 14px 16px;
   margin: 0 -14px;
   border-bottom: 1px solid var(--border);
 }
