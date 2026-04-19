@@ -169,7 +169,6 @@ button {
 
 .json-diff-viewer pre .inline-diff-add {
   background: rgba(0, 128, 0, 0.2);
-  text-decoration: underline;
   word-break: break-all;
 }
 

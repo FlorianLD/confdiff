@@ -44,6 +44,15 @@ function deleteNestedId(obj, outerKey) {
           const { id: _id, ...rest } = v;
           return [k, deleteNestedId(rest, outerKey)];
         }
+        if (k === outerKey && Array.isArray(v)) {
+          return [k, v.map(item => {
+            if (item !== null && typeof item === 'object' && !Array.isArray(item)) {
+              const { id: _id, ...rest } = item;
+              return deleteNestedId(rest, outerKey);
+            }
+            return deleteNestedId(item, outerKey);
+          })];
+        }
         return [k, deleteNestedId(v, outerKey)];
       })
     );
@@ -67,14 +76,32 @@ function rekey(obj, keyFn) {
   );
 }
 
-function preprocessJson(baseName, data) {
+function replaceTimetableIds(obj, timetableMap) {
+  if (Array.isArray(obj)) return obj.map(i => replaceTimetableIds(i, timetableMap));
+  if (obj !== null && typeof obj === 'object') {
+    return Object.fromEntries(
+      Object.entries(obj).map(([k, v]) => {
+        if (['pickup_timetable_id', 'opening_timetable_id', 'delivery_timetable_id'].includes(k) && typeof v === 'string') {
+          return [k, timetableMap[v] ?? v];
+        }
+        return [k, replaceTimetableIds(v, timetableMap)];
+      })
+    );
+  }
+  return obj;
+}
+
+function preprocessJson(baseName, data, context = {}) {
   if (FILES_WITH_KEY_DELETE.has(baseName)) {
     let result = deleteFields(data, new Set(['created', 'creation_date', 'last_update', 'version', 'from']));
     result = deleteIdWhere(result, id => /\d{3},?$/.test(id));
     result = deleteIdWhere(result, id => /-/.test(id));
     result = deleteIdWhere(result, id => /endpoints_|items__/.test(id));
-    if (baseName === 'delivery_configs' && result.delivery_configs) {
-      result = { ...result, delivery_configs: rekey(result.delivery_configs, v => v?.name?.trim()) };
+    if ((baseName === 'delivery_routes' || baseName === 'zones') && context.timetableMap) {
+      result = replaceTimetableIds(result, context.timetableMap);
+    }
+    if (['delivery_configs', 'delivery_routes', 'execution_times', 'timetables'].includes(baseName) && result[baseName]) {
+      result = { ...result, [baseName]: rekey(result[baseName], v => v?.name?.trim()) };
       result = deleteFields(result, new Set(['id']));
       result = trimNameFields(result);
     }
@@ -84,13 +111,34 @@ function preprocessJson(baseName, data) {
         const sc = v?.value?.sales_channel;
         return dm && sc ? `${dm}_${sc}` : null;
       }) };
-    if (baseName === 'zones')
-      result = deleteFields(result, new Set(['endpoint_ids']));
+    if (baseName === 'zones') {
+      result = deleteFields(result, new Set(['endpoint_ids', 'public_id']));
+      result = deleteNestedId(result, 'routes');
+    }
     return result;
   }
   if (baseName === 'modules') return deleteNestedId(data, 'module');
   if (baseName === 'request_couples') return deleteNestedId(data, 'value');
   return data;
+}
+
+async function buildTimetableMap(filesArr) {
+  const tf = filesArr.find((f) => f.name === 'timetables.json');
+  if (!tf) return {};
+  try {
+    const data = JSON.parse(await tf.text());
+    const timetables = data.timetables;
+    if (!timetables || typeof timetables !== 'object') return {};
+    const map = {};
+    for (const [id, obj] of Object.entries(timetables)) {
+      const name = obj?.name?.trim();
+      if (name) map[id] = name;
+    }
+    return map;
+  } catch (e) {
+    console.warn('Failed to build timetable map:', e);
+    return {};
+  }
 }
 
 const toSentenceCase = (str) => str ? str.charAt(0).toUpperCase() + str.slice(1).toLowerCase() : '—';
@@ -127,11 +175,13 @@ async function splitConfigurations(filesArr) {
 async function computeAllDiffs(internalFilesArr, stagingFilesArr, fileNames) {
   const stats = {};
   const diffs = {};
+  const beforeCtx = { timetableMap: await buildTimetableMap(internalFilesArr) };
+  const afterCtx = { timetableMap: await buildTimetableMap(stagingFilesArr) };
   for (const fileName of fileNames) {
     try {
       const baseName = fileName.replace(/\.json$/, '');
-      const before = preprocessJson(baseName, JSON.parse(await internalFilesArr.find((f) => f.name === fileName).text()));
-      const after = preprocessJson(baseName, JSON.parse(await stagingFilesArr.find((f) => f.name === fileName).text()));
+      const before = preprocessJson(baseName, JSON.parse(await internalFilesArr.find((f) => f.name === fileName).text()), beforeCtx);
+      const after = preprocessJson(baseName, JSON.parse(await stagingFilesArr.find((f) => f.name === fileName).text()), afterCtx);
       const result = differ.diff(before, after);
       const [leftLines, rightLines] = result;
       stats[fileName] = {
