@@ -12,7 +12,7 @@
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
-    "json-diff-kit": "^1.0.35",
+    "json-diff-kit": "github:FlorianLD/json-diff-kit#main",
     "jszip": "^3.10.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
